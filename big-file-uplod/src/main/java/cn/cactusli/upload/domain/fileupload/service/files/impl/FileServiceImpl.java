@@ -44,14 +44,14 @@ public class FileServiceImpl implements FileService {
     private AtomicInteger atomicInteger = new AtomicInteger(0);
 
 
-    private final ExecutorService executorService = Executors.newFixedThreadPool(Integer.valueOf(YmlUtil.getValue("upload.thread.maxSize").toString()), (r) -> {
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(Integer.valueOf(YmlUtil.getValue("upload.thread.maxSize").toString()), (r) -> {
         String threadName = "uploadPool-" + atomicInteger.getAndIncrement();
         Thread thread = new Thread(r);
         thread.setName(threadName);
         return thread;
     });
 
-    private final CompletionService<FileUpload> completionService = new ExecutorCompletionService<>(executorService, new LinkedBlockingDeque<>(Integer.valueOf(YmlUtil.getValue("upload.queue.maxSize").toString())));
+    // private final CompletionService<FileUpload> completionService = new ExecutorCompletionService<>(executorService, new LinkedBlockingDeque<>(Integer.valueOf(YmlUtil.getValue("upload.queue.maxSize").toString())));
 
 
     @Override
@@ -84,14 +84,23 @@ public class FileServiceImpl implements FileService {
     public FileUpload sliceUpload(FileUploadRequest fileUploadRequestDTO) {
 
         try {
-            completionService.submit(new FileCallable(UploadModeEnum.RANDOM_ACCESS, fileUploadRequestDTO));
+            // completionService.submit(new FileCallable(UploadModeEnum.RANDOM_ACCESS, fileUploadRequestDTO));
+            // FileUpload fileUploadDTO = completionService.take().get();
+            // return fileUploadDTO;
 
-            FileUpload fileUploadDTO = completionService.take().get();
-            return fileUploadDTO;
-        } catch (InterruptedException e) {
-            log.error(e.getMessage(), e);
-            throw new RuntimeException(e.getMessage());
-        } catch (ExecutionException e) {
+            // 使用 CompletableFuture 异步执行文件上传任务
+            CompletableFuture<FileUpload> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    String threadName = Thread.currentThread().getName();
+                    log.info("当前线程：" + threadName);
+                    // 调用 FileCallable 的 call 方法来执行上传任务
+                    return new FileCallable(UploadModeEnum.RANDOM_ACCESS, fileUploadRequestDTO).call();
+                } catch (Exception e) {
+                    throw new RuntimeException("Error during file upload", e);
+                }
+            }, threadPool);
+            return future.get();
+        } catch (Exception e) {
             log.error(e.getMessage(), e);
             throw new RuntimeException(e.getMessage());
         }

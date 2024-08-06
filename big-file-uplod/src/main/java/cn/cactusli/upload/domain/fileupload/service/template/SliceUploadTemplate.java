@@ -27,7 +27,6 @@ public abstract class SliceUploadTemplate implements SliceUploadStrategy {
     public abstract boolean upload(FileUploadRequest param);
 
     protected File createTmpFile(FileUploadRequest param) {
-
         FilePathUtil filePathUtil = SpringContextHolder.getBean(FilePathUtil.class);
         param.setPath(FileUtil.withoutHeadAndTailDiagonal(param.getPath()));
         String fileName = param.getFile().getOriginalFilename();
@@ -43,7 +42,6 @@ public abstract class SliceUploadTemplate implements SliceUploadStrategy {
 
     @Override
     public FileUpload sliceUpload(FileUploadRequest param) {
-
         boolean isOk = this.upload(param);
         if (isOk) {
             File tmpFile = this.createTmpFile(param);
@@ -61,37 +59,36 @@ public abstract class SliceUploadTemplate implements SliceUploadStrategy {
      * 检查并修改文件上传进度
      */
     public boolean checkAndSetUploadProgress(FileUploadRequest param, String uploadDirPath) {
-
         String fileName = param.getFile().getOriginalFilename();
         File confFile = new File(uploadDirPath, fileName + ".conf");
         byte isComplete = 0;
-        RandomAccessFile accessConfFile = null;
-        try {
-            accessConfFile = new RandomAccessFile(confFile, "rw");
-            //把该分段标记为 true 表示完成
-            System.out.println("set part " + param.getChunk() + " complete");
 
-            //创建conf文件文件长度为总分片数，每上传一个分块即向conf文件中写入一个127，那么没上传的位置就是默认0,已上传的就是Byte.MAX_VALUE 127
-            accessConfFile.setLength(param.getChunks());
-            accessConfFile.seek(param.getChunk());
-            accessConfFile.write(Byte.MAX_VALUE);
-
-            //completeList 检查是否全部完成,如果数组里是否全部都是127(全部分片都成功上传)
-            byte[] completeList = FileUtils.readFileToByteArray(confFile);
-            isComplete = Byte.MAX_VALUE;
-            for (int i = 0; i < completeList.length && isComplete == Byte.MAX_VALUE; i++) {
-                //与运算, 如果有部分没有完成则 isComplete 不是 Byte.MAX_VALUE
-                isComplete = (byte) (isComplete & completeList[i]);
-                System.out.println("check part " + i + " complete?:" + completeList[i]);
-            }
-
+        try (RandomAccessFile accessConfFile = new RandomAccessFile(confFile, "rw")) {
+            markChunkComplete(accessConfFile, param.getChunks(), param.getChunk());
+            isComplete = checkAllChunksComplete(confFile, param.getChunks());
         } catch (IOException e) {
             log.error(e.getMessage(), e);
-        } finally {
-            FileUtil.close(accessConfFile);
+            return false;
         }
-        boolean isOk = setUploadProgress2Redis(param, uploadDirPath, fileName, confFile, isComplete);
-        return isOk;
+
+        return setUploadProgress2Redis(param, uploadDirPath, fileName, confFile, isComplete);
+    }
+
+    private void markChunkComplete(RandomAccessFile accessConfFile, int totalChunks, int chunkIndex) throws IOException {
+        log.info("set part " + chunkIndex + " complete");
+        accessConfFile.setLength(totalChunks);
+        accessConfFile.seek(chunkIndex);
+        accessConfFile.write(Byte.MAX_VALUE);
+    }
+
+    private byte checkAllChunksComplete(File confFile, int totalChunks) throws IOException {
+        byte[] completeList = FileUtils.readFileToByteArray(confFile);
+        byte isComplete = Byte.MAX_VALUE;
+        for (int i = 0; i < completeList.length && isComplete == Byte.MAX_VALUE; i++) {
+            isComplete = (byte) (isComplete & completeList[i]);
+            log.info("check part " + i + " complete?:" + completeList[i]);
+        }
+        return isComplete;
     }
 
     /**
@@ -119,22 +116,15 @@ public abstract class SliceUploadTemplate implements SliceUploadStrategy {
      * 保存文件操作
      */
     public FileUpload saveAndFileUploadDTO(String fileName, File tmpFile) {
-
         FileUpload fileUploadDTO = null;
-
         try {
-
             fileUploadDTO = renameFile(tmpFile, fileName);
             if (fileUploadDTO.isUploadComplete()) {
-                System.out.println("upload complete !!" + fileUploadDTO.isUploadComplete() + " name=" + fileName);
-                //TODO 保存文件信息到数据库
-
+                log.info("upload complete !! " + fileUploadDTO.isUploadComplete() + " name=" + fileName);
+                // TODO 保存文件信息到数据库
             }
-
         } catch (Exception e) {
             log.error(e.getMessage(), e);
-        } finally {
-
         }
         return fileUploadDTO;
     }
