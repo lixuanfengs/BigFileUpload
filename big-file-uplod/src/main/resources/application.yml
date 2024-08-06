@@ -1,0 +1,27 @@
+server:
+  port: 8784
+
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 102489MB
+      max-request-size: 102489MB
+  data:
+    redis:
+      host: 192.168.1.18 # 地址
+      port: 6380 # 端口
+      database: 0 # 数据库索引
+      password: Nstr.@#$808 # 密码，建议生产环境开启
+
+upload:
+  chunkSize: 2
+  thread:
+    maxSize: 25
+  queue:
+    maxSize: 100
+  window:
+    root:
+  root:
+    dir:
+
